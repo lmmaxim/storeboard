@@ -146,11 +146,11 @@ failed_jobs (
    - `/app/(authenticated)/layout.tsx` - Protected layout
 
 #### Test Criteria
-- [ ] Can click "Sign in with Google" and complete OAuth flow
-- [ ] Redirected to `/dashboard` after successful auth
-- [ ] Unauthenticated users redirected to `/signin`
-- [ ] Can sign out successfully
-- [ ] Auth persists on page refresh
+- [x] Can click "Sign in with Google" and complete OAuth flow
+- [x] Redirected to `/dashboard` after successful auth
+- [x] Unauthenticated users redirected to `/signin`
+- [x] Can sign out successfully
+- [x] Auth persists on page refresh
 
 ---
 
@@ -202,15 +202,15 @@ failed_jobs (
    - `deleteStore(storeId, userId)`
 
 #### Test Criteria
-- [ ] All tables created in Supabase
-- [ ] RLS policies prevent cross-user data access
-- [ ] Encryption/decryption roundtrip works
-- [ ] Can create a store via database layer (test script)
-- [ ] Can retrieve stores for a user
+- [x] All tables created in Supabase
+- [x] RLS policies prevent cross-user data access
+- [x] Encryption/decryption roundtrip works
+- [x] Can create a store via database layer (test script)
+- [x] Can retrieve stores for a user
 
 ---
 
-### 🚧 Day 3: Store Management UI
+### ✅ Day 3: Store Management UI
 
 **Goal**: Users can add/edit/delete stores with basic info (no integrations yet)
 
@@ -243,16 +243,16 @@ failed_jobs (
    - Toast notifications for success/error
 
 #### Test Criteria
-- [ ] Can view list of stores (empty state if none)
-- [ ] Can add a new store with name and Shopify domain
-- [ ] Can edit existing store
-- [ ] Can delete store with confirmation
-- [ ] Loading states show during operations
-- [ ] Toast shows on success/error
+- [x] Can view list of stores (empty state if none)
+- [x] Can add a new store with name and Shopify domain
+- [x] Can edit existing store
+- [x] Can delete store with confirmation
+- [x] Loading states show during operations
+- [x] Toast shows on success/error
 
 ---
 
-###  Day 4: Shopify OAuth Integration
+###  🚧 Day 4: Shopify OAuth Integration
 
 **Goal**: Complete Shopify OAuth flow to obtain access token
 

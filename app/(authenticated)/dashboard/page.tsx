@@ -1,7 +1,11 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { Header } from '@/components/layout/Header'
+import { getStoresOperation } from '@/data/operations/store.operations'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { signOut } from './actions'
+import Link from 'next/link'
+import { Plus, Store, Package } from 'lucide-react'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -13,44 +17,104 @@ export default async function DashboardPage() {
     redirect('/signin')
   }
 
+  const stores = await getStoresOperation(user.id)
+
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-black">
-      <div className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="flex h-16 items-center justify-between">
-            <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">
-              Storeboard
-            </h1>
-            <div className="flex items-center gap-4">
-              <span className="text-sm text-zinc-600 dark:text-zinc-400">
-                {user.email}
-              </span>
-              <form action={signOut}>
-                <Button type="submit" variant="outline" size="sm">
-                  Sign out
-                </Button>
-              </form>
-            </div>
-          </div>
-        </div>
-      </div>
-
+      <Header userEmail={user.email ?? null} />
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="space-y-6">
           <div>
-            <h2 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">
+            <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">
               Dashboard
-            </h2>
+            </h1>
             <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
               Welcome to Storeboard! Your order management dashboard.
             </p>
           </div>
 
-          <div className="rounded-lg border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-            <p className="text-sm text-zinc-600 dark:text-zinc-400">
-              Your dashboard is ready. Start by adding a store in the next step.
-            </p>
+          <div className="grid gap-4 md:grid-cols-3">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Stores</CardTitle>
+                <Store className="h-4 w-4 text-zinc-600 dark:text-zinc-400" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{stores.length}</div>
+                <p className="text-xs text-zinc-600 dark:text-zinc-400">
+                  Connected stores
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Orders</CardTitle>
+                <Package className="h-4 w-4 text-zinc-600 dark:text-zinc-400" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">0</div>
+                <p className="text-xs text-zinc-600 dark:text-zinc-400">
+                  Total orders
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Pending AWBs</CardTitle>
+                <Package className="h-4 w-4 text-zinc-600 dark:text-zinc-400" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">0</div>
+                <p className="text-xs text-zinc-600 dark:text-zinc-400">
+                  Awaiting AWB generation
+                </p>
+              </CardContent>
+            </Card>
           </div>
+
+          {stores.length === 0 ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Get Started</CardTitle>
+                <CardDescription>
+                  Add your first Shopify store to start managing orders
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Link href="/stores/new">
+                  <Button>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add Your First Store
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardHeader>
+                <CardTitle>Quick Actions</CardTitle>
+                <CardDescription>
+                  Manage your stores and view orders
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex gap-2">
+                <Link href="/stores">
+                  <Button variant="outline">
+                    <Store className="mr-2 h-4 w-4" />
+                    View Stores
+                  </Button>
+                </Link>
+                <Link href="/orders">
+                  <Button variant="outline">
+                    <Package className="mr-2 h-4 w-4" />
+                    View Orders
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </main>
     </div>

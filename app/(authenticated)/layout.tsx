@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { Toaster } from '@/components/ui/sonner'
 
 export default async function AuthenticatedLayout({
   children,
@@ -15,6 +16,11 @@ export default async function AuthenticatedLayout({
     redirect('/signin')
   }
 
-  return <>{children}</>
+  return (
+    <>
+      {children}
+      <Toaster />
+    </>
+  )
 }
 
