@@ -1,0 +1,813 @@
+---
+alwaysApply: true
+---
+# Storeboard - Cursor Rules
+
+## Project Overview
+
+You are building **Storeboard**, a multi-store order management dashboard that integrates Shopify stores with courier services (FanCourier) and invoicing providers (SmartBill).
+
+- **Domain**: storeboard.app (dev.storeboard.app for development)
+- **Stack**: Next.js 16, TypeScript, Supabase, Vercel
+- **Shopify API Version**: 2025-10
+
+---
+
+## Core Principles
+
+### 1. TypeScript Strict Mode
+- Always use strict TypeScript
+- No `any` types unless absolutely necessary (and documented why)
+- Prefer interfaces over types for object shapes
+- Use proper generics where applicable
+
+### 2. Data Access Layer (DAL)
+All database operations MUST go through the `/data` folder:
+
+```
+/data
+  /database          # Database CRUD operations only
+  /operations        # Business logic, orchestration
+  /types             # Shared TypeScript interfaces
+  /encryption        # Credential encryption utilities
+```
+
+**Rules:**
+- Database: Only SQL queries, no business logic
+- Operations: Call database layer, handle business rules, orchestration
+- Never call Supabase directly from components or API routes
+
+### 3. Supabase Configuration
+- Use `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (not anon key)
+- Use `SUPABASE_SECRET_KEY` for server-side operations
+- Only use service role if RLS bypass is absolutely needed
+- Always apply RLS policies
+
+```typescript
+// Client-side: /lib/supabase/client.ts
+import { createBrowserClient } from '@supabase/ssr'
+
+// Server-side: /lib/supabase/server.ts
+import { createServerClient } from '@supabase/ssr'
+```
+
+### 4. Integration Provider Pattern
+All external integrations must follow the provider interface pattern:
+
+```typescript
+// Courier providers must implement:
+interface CourierProvider {
+  name: string
+  generateAwb(order: Order, credentials: CourierCredentials): Promise<AwbResult>
+  cancelAwb(awbNumber: string, credentials: CourierCredentials): Promise<void>
+  getAwbStatus(awbNumber: string, credentials: CourierCredentials): Promise<AwbStatus>
+  getAwbPdf(awbNumber: string, credentials: CourierCredentials): Promise<Buffer>
+}
+
+// Invoice providers must implement:
+interface InvoiceProvider {
+  name: string
+  generateInvoice(order: Order, credentials: InvoiceCredentials): Promise<InvoiceResult>
+  voidInvoice(invoiceNumber: string, credentials: InvoiceCredentials): Promise<void>
+  getInvoicePdf(invoiceNumber: string, credentials: InvoiceCredentials): Promise<Buffer>
+}
+```
+
+### 5. Mock Mode for Integrations
+When `USE_MOCK_INTEGRATIONS=true`:
+- Console.log the full API payload
+- Return realistic mock data
+- Never make actual HTTP requests
+
+```typescript
+if (process.env.USE_MOCK_INTEGRATIONS === 'true') {
+  console.log('[MOCK] FanCourier AWB Request:', JSON.stringify(payload, null, 2))
+  return { awbNumber: 'MOCK-AWB-' + Date.now(), success: true }
+}
+```
+
+---
+
+## Code Style
+
+### File Naming
+- Components: `PascalCase.tsx` (e.g., `OrderSidebar.tsx`)
+- Utilities: `kebab-case.ts` (e.g., `order-utils.ts`)
+- Types: `kebab-case.types.ts` (e.g., `order.types.ts`)
+- Database: `kebab-case.database.ts` (e.g., `order.database.ts`)
+- Operations: `kebab-case.operations.ts` (e.g., `order.operations.ts`)
+
+### Component Structure
+```typescript
+// 1. Imports
+import { ... } from 'react'
+import { ... } from '@/components/ui'
+import { ... } from '@/data/operations'
+
+// 2. Types/Interfaces
+interface OrderSidebarProps {
+  orderId: string
+  onClose: () => void
+}
+
+// 3. Component
+export function OrderSidebar({ orderId, onClose }: OrderSidebarProps) {
+  // Hooks first
+  const [loading, setLoading] = useState(false)
+  
+  // Effects
+  useEffect(() => {}, [])
+  
+  // Handlers
+  const handleGenerateAwb = async () => {}
+  
+  // Render
+  return (...)
+}
+```
+
+### Server Actions
+Prefer Server Actions over API routes for mutations:
+
+```typescript
+// /app/(authenticated)/orders/actions.ts
+'use server'
+
+import { generateAwbForOrder } from '@/data/operations/awb.operations'
+import { revalidatePath } from 'next/cache'
+
+export async function generateAwbAction(orderId: string) {
+  const result = await generateAwbForOrder(orderId)
+  revalidatePath('/orders')
+  revalidatePath('/dashboard')
+  return result
+}
+```
+
+### API Routes
+Only use for:
+- Webhooks (external callbacks)
+- File downloads
+- Cron jobs
+- OAuth callbacks
+
+```typescript
+// /app/api/webhooks/shopify/[storeId]/route.ts
+import { NextRequest, NextResponse } from 'next/server'
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { storeId: string } }
+) {
+  // Verify webhook signature
+  // Process webhook
+  return NextResponse.json({ received: true })
+}
+```
+
+---
+
+## Database Schema
+
+### Essential Tables
+
+```sql
+-- Stores (each user can have multiple)
+CREATE TABLE stores (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  shopify_domain TEXT NOT NULL,
+  shopify_client_id_encrypted TEXT,
+  shopify_client_secret_encrypted TEXT,
+  shopify_access_token_encrypted TEXT,
+  shopify_scopes TEXT[],
+  courier_provider TEXT DEFAULT 'fancourier',
+  courier_credentials_encrypted TEXT,
+  invoice_provider TEXT DEFAULT 'smartbill',
+  invoice_credentials_encrypted TEXT,
+  webhook_secret TEXT,
+  auto_fulfill BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Orders (essential fields only)
+CREATE TABLE orders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  store_id UUID REFERENCES stores(id) ON DELETE CASCADE,
+  shopify_order_id TEXT NOT NULL,
+  shopify_order_number TEXT NOT NULL,
+  customer_name TEXT,
+  customer_email TEXT,
+  customer_phone TEXT,
+  shipping_address JSONB,
+  line_items JSONB,
+  total_price DECIMAL(10,2),
+  currency TEXT DEFAULT 'RON',
+  financial_status TEXT,
+  fulfillment_status TEXT,
+  cancelled_at TIMESTAMPTZ,
+  awb_number TEXT,
+  awb_created_at TIMESTAMPTZ,
+  awb_pdf_url TEXT,
+  invoice_number TEXT,
+  invoice_created_at TIMESTAMPTZ,
+  invoice_pdf_url TEXT,
+  shopify_created_at TIMESTAMPTZ,
+  synced_at TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(store_id, shopify_order_id)
+);
+
+-- Webhook Events (for debugging/retry)
+CREATE TABLE webhook_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  store_id UUID REFERENCES stores(id) ON DELETE CASCADE,
+  topic TEXT NOT NULL,
+  shopify_webhook_id TEXT,
+  payload JSONB NOT NULL,
+  processed BOOLEAN DEFAULT false,
+  error TEXT,
+  retry_count INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  processed_at TIMESTAMPTZ
+);
+
+-- Notifications
+CREATE TABLE notifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  message TEXT,
+  read BOOLEAN DEFAULT false,
+  metadata JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Failed Jobs (dev only)
+CREATE TABLE failed_jobs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  type TEXT NOT NULL,
+  payload JSONB NOT NULL,
+  error TEXT NOT NULL,
+  retry_count INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  last_attempted_at TIMESTAMPTZ
+);
+```
+
+### RLS Policies
+Always create RLS policies:
+
+```sql
+-- Enable RLS
+ALTER TABLE stores ENABLE ROW LEVEL SECURITY;
+
+-- Users can only see their own stores
+CREATE POLICY "Users can view own stores" ON stores
+  FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own stores" ON stores
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own stores" ON stores
+  FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own stores" ON stores
+  FOR DELETE USING (auth.uid() = user_id);
+```
+
+---
+
+## Encryption
+
+All sensitive credentials must be encrypted at rest:
+
+```typescript
+// /data/encryption/credentials.ts
+import { createCipheriv, createDecipheriv, randomBytes } from 'crypto'
+
+const ALGORITHM = 'aes-256-gcm'
+const KEY = Buffer.from(process.env.ENCRYPTION_KEY!, 'hex') // 32 bytes
+
+export function encryptCredentials(data: object): string {
+  const iv = randomBytes(16)
+  const cipher = createCipheriv(ALGORITHM, KEY, iv)
+  
+  let encrypted = cipher.update(JSON.stringify(data), 'utf8', 'hex')
+  encrypted += cipher.final('hex')
+  
+  const authTag = cipher.getAuthTag()
+  
+  return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`
+}
+
+export function decryptCredentials<T>(encrypted: string): T {
+  const [ivHex, authTagHex, data] = encrypted.split(':')
+  
+  const iv = Buffer.from(ivHex, 'hex')
+  const authTag = Buffer.from(authTagHex, 'hex')
+  const decipher = createDecipheriv(ALGORITHM, KEY, iv)
+  
+  decipher.setAuthTag(authTag)
+  
+  let decrypted = decipher.update(data, 'hex', 'utf8')
+  decrypted += decipher.final('utf8')
+  
+  return JSON.parse(decrypted)
+}
+```
+
+---
+
+## Shopify Integration
+
+### OAuth Flow
+```typescript
+// Scopes needed
+const SHOPIFY_SCOPES = [
+  'read_orders',
+  'write_orders', 
+  'read_products',
+  'write_fulfillments',
+  'read_fulfillments'
+].join(',')
+
+// OAuth URL
+const authUrl = `https://${shopifyDomain}/admin/oauth/authorize?` +
+  `client_id=${clientId}&` +
+  `scope=${SHOPIFY_SCOPES}&` +
+  `redirect_uri=${redirectUri}&` +
+  `state=${state}`
+```
+
+### Webhook Topics
+Subscribe to these webhooks after OAuth:
+- `orders/create`
+- `orders/updated`
+- `orders/cancelled`
+- `fulfillments/create`
+- `fulfillments/update`
+- `app/uninstalled`
+
+### Webhook Verification
+```typescript
+import { createHmac } from 'crypto'
+
+export function verifyShopifyWebhook(
+  payload: string,
+  signature: string,
+  secret: string
+): boolean {
+  const hmac = createHmac('sha256', secret)
+  hmac.update(payload, 'utf8')
+  const computed = 'sha256=' + hmac.digest('base64')
+  return computed === signature
+}
+```
+
+---
+
+## UI Components
+
+Use shadcn/ui components. Key components needed:
+- `Button` (with loading state)
+- `Card`
+- `Dialog`
+- `DropdownMenu`
+- `Input`
+- `Label`
+- `Select`
+- `Sheet` (for sidebar)
+- `Skeleton`
+- `Table`
+- `Toast` (via `sonner`)
+- `Checkbox`
+- `Badge`
+- `Popover` (for notification panel)
+
+### Loading States
+Always implement loading states:
+
+```typescript
+function OrderTable() {
+  const [loading, setLoading] = useState(true)
+  
+  if (loading) {
+    return <OrderTableSkeleton />
+  }
+  
+  return (...)
+}
+```
+
+### Optimistic Updates
+Use `useOptimistic` for instant feedback:
+
+```typescript
+const [optimisticOrders, addOptimisticOrder] = useOptimistic(
+  orders,
+  (state, newOrder) => [...state, newOrder]
+)
+```
+
+---
+
+## Error Handling
+
+### API Error Format
+```typescript
+interface ApiError {
+  error: string
+  code: string
+  details?: unknown
+}
+
+// In API routes
+return NextResponse.json(
+  { error: 'Order not found', code: 'ORDER_NOT_FOUND' },
+  { status: 404 }
+)
+```
+
+### Operations Error Handling
+```typescript
+export class OperationError extends Error {
+  constructor(
+    message: string,
+    public code: string,
+    public statusCode: number = 500
+  ) {
+    super(message)
+  }
+}
+
+// Usage
+throw new OperationError('Store not found', 'STORE_NOT_FOUND', 404)
+```
+
+---
+
+## Vercel Deployment
+
+### Cron Jobs
+```typescript
+// /app/api/cron/reconcile/route.ts
+import { NextResponse } from 'next/server'
+
+export const runtime = 'nodejs'
+export const maxDuration = 300 // 5 minutes
+
+export async function GET(request: Request) {
+  // Verify cron secret
+  const authHeader = request.headers.get('authorization')
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  
+  // Run reconciliation
+  await reconcileOrders()
+  
+  return NextResponse.json({ success: true })
+}
+```
+
+### vercel.json
+```json
+{
+  "crons": [
+    {
+      "path": "/api/cron/reconcile",
+      "schedule": "0 */6 * * *"
+    }
+  ]
+}
+```
+
+---
+
+## File Structure
+
+```
+/storeboard
+├── /app
+│   ├── /api
+│   │   ├── /auth/callback/route.ts
+│   │   ├── /shopify
+│   │   │   ├── /auth/route.ts
+│   │   │   └── /callback/route.ts
+│   │   ├── /webhooks/shopify/[storeId]/route.ts
+│   │   ├── /orders/[orderId]
+│   │   │   ├── /awb-pdf/route.ts
+│   │   │   └── /invoice-pdf/route.ts
+│   │   └── /cron/reconcile/route.ts
+│   ├── /(authenticated)
+│   │   ├── layout.tsx
+│   │   ├── /dashboard/page.tsx
+│   │   ├── /orders/page.tsx
+│   │   ├── /stores
+│   │   │   ├── page.tsx
+│   │   │   ├── /new/page.tsx
+│   │   │   └── /[storeId]/settings/page.tsx
+│   │   └── /admin
+│   │       ├── /reconciliation/page.tsx
+│   │       └── /failed-jobs/page.tsx
+│   ├── /signin/page.tsx
+│   ├── layout.tsx
+│   └── globals.css
+├── /components
+│   ├── /ui (shadcn components)
+│   ├── /orders
+│   │   ├── OrderTable.tsx
+│   │   ├── OrderSidebar.tsx
+│   │   ├── OrderRow.tsx
+│   │   └── BulkActionBar.tsx
+│   ├── /stores
+│   │   ├── StoreCard.tsx
+│   │   ├── StoreForm.tsx
+│   │   └── ShopifyConnectButton.tsx
+│   ├── /notifications
+│   │   ├── NotificationBell.tsx
+│   │   └── NotificationPanel.tsx
+│   └── /layout
+│       ├── Header.tsx
+│       ├── Sidebar.tsx
+│       └── UserMenu.tsx
+├── /data
+│   ├── /database
+│   │   ├── store.database.ts
+│   │   ├── order.database.ts
+│   │   ├── webhook-event.database.ts
+│   │   └── notification.database.ts
+│   ├── /operations
+│   │   ├── store.operations.ts
+│   │   ├── order.operations.ts
+│   │   ├── awb.operations.ts
+│   │   ├── invoice.operations.ts
+│   │   ├── fulfillment.operations.ts
+│   │   ├── cancellation.operations.ts
+│   │   ├── document.operations.ts
+│   │   └── notification.operations.ts
+│   ├── /types
+│   │   ├── store.types.ts
+│   │   ├── order.types.ts
+│   │   ├── courier.types.ts
+│   │   └── invoice.types.ts
+│   └── /encryption
+│       └── credentials.ts
+├── /lib
+│   ├── /supabase
+│   │   ├── client.ts
+│   │   ├── server.ts
+│   │   └── middleware.ts
+│   ├── /integrations
+│   │   ├── /shopify
+│   │   │   ├── oauth.ts
+│   │   │   ├── api.ts
+│   │   │   ├── webhook.ts
+│   │   │   └── fulfillment.ts
+│   │   ├── /couriers
+│   │   │   ├── /base
+│   │   │   │   └── types.ts
+│   │   │   ├── /fancourier
+│   │   │   │   ├── client.ts
+│   │   │   │   ├── mock.ts
+│   │   │   │   └── index.ts
+│   │   │   └── factory.ts
+│   │   └── /invoicing
+│   │       ├── /base
+│   │       │   └── types.ts
+│   │       ├── /smartbill
+│   │       │   ├── client.ts
+│   │       │   ├── mock.ts
+│   │       │   └── index.ts
+│   │       └── factory.ts
+│   └── /utils
+│       ├── errors.ts
+│       └── format.ts
+├── /supabase
+│   └── /migrations
+│       ├── 001_create_stores.sql
+│       ├── 002_create_orders.sql
+│       ├── 003_create_webhook_events.sql
+│       ├── 004_create_notifications.sql
+│       └── 005_create_failed_jobs.sql
+├── .env.local
+├── .env.example
+├── middleware.ts
+├── next.config.js
+├── package.json
+├── tailwind.config.ts
+├── tsconfig.json
+└── vercel.json
+```
+
+---
+
+## Environment Variables
+
+```env
+# Supabase
+NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=eyJhbGc...
+SUPABASE_SECRET_KEY=eyJhbGc...
+
+# App
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+ENCRYPTION_KEY=your-32-byte-hex-string-here
+
+# Feature Flags
+USE_MOCK_INTEGRATIONS=true
+
+# Vercel Cron
+CRON_SECRET=your-cron-secret
+
+# FanCourier API (if needed at app level)
+FANCOURIER_API_URL=https://api.fancourier.ro
+
+# SmartBill API (if needed at app level)
+SMARTBILL_API_URL=https://ws.smartbill.ro/SBORO/api
+```
+
+---
+
+## Common Patterns
+
+### Fetching with Loading State
+```typescript
+'use client'
+
+import { useEffect, useState } from 'react'
+import { getOrders } from '@/data/operations/order.operations'
+
+export function OrderList() {
+  const [orders, setOrders] = useState<Order[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    async function fetchOrders() {
+      try {
+        const data = await getOrders()
+        setOrders(data)
+      } catch (err) {
+        setError('Failed to load orders')
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchOrders()
+  }, [])
+
+  if (loading) return <OrderListSkeleton />
+  if (error) return <ErrorState message={error} />
+  if (orders.length === 0) return <EmptyState />
+
+  return <OrderTable orders={orders} />
+}
+```
+
+### Server Action with Revalidation
+```typescript
+'use server'
+
+import { revalidatePath } from 'next/cache'
+import { generateAwbForOrder } from '@/data/operations/awb.operations'
+
+export async function generateAwb(orderId: string) {
+  try {
+    const result = await generateAwbForOrder(orderId)
+    revalidatePath('/orders')
+    revalidatePath('/dashboard')
+    return { success: true, data: result }
+  } catch (error) {
+    return { success: false, error: (error as Error).message }
+  }
+}
+```
+
+### Protected Route Check
+```typescript
+// In server component or layout
+import { createServerClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
+
+export default async function ProtectedLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  const supabase = createServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/signin')
+  }
+
+  return <>{children}</>
+}
+```
+
+### Database Layer Pattern
+```typescript
+// /data/database/order.database.ts
+import { createServerClient } from '@/lib/supabase/server'
+import type { Order, OrderInsert, OrderUpdate } from '@/data/types/order.types'
+
+export async function getOrderById(orderId: string): Promise<Order | null> {
+  const supabase = createServerClient()
+  
+  const { data, error } = await supabase
+    .from('orders')
+    .select('*')
+    .eq('id', orderId)
+    .single()
+    
+  if (error) throw error
+  return data
+}
+
+export async function updateOrder(orderId: string, updates: OrderUpdate): Promise<Order> {
+  const supabase = createServerClient()
+  
+  const { data, error } = await supabase
+    .from('orders')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', orderId)
+    .select()
+    .single()
+    
+  if (error) throw error
+  return data
+}
+```
+
+### Operations Layer Pattern
+```typescript
+// /data/operations/awb.operations.ts
+import { getOrderById, updateOrder } from '@/data/database/order.database'
+import { getStoreById } from '@/data/database/store.database'
+import { decryptCredentials } from '@/data/encryption/credentials'
+import { getCourierProvider } from '@/lib/integrations/couriers/factory'
+import type { AwbResult } from '@/data/types/courier.types'
+
+export async function generateAwbForOrder(orderId: string): Promise<AwbResult> {
+  // 1. Get order and store
+  const order = await getOrderById(orderId)
+  if (!order) throw new Error('Order not found')
+  
+  const store = await getStoreById(order.store_id)
+  if (!store) throw new Error('Store not found')
+  
+  // 2. Decrypt credentials
+  const credentials = decryptCredentials(store.courier_credentials_encrypted)
+  
+  // 3. Get provider and generate AWB
+  const courier = getCourierProvider(store.courier_provider)
+  const result = await courier.generateAwb(order, credentials)
+  
+  // 4. Update order with AWB info
+  await updateOrder(orderId, {
+    awb_number: result.awbNumber,
+    awb_created_at: new Date().toISOString(),
+    awb_pdf_url: result.pdfUrl
+  })
+  
+  return result
+}
+```
+
+---
+
+## Don't Do
+
+- ❌ Don't use `any` type
+- ❌ Don't call Supabase directly from components
+- ❌ Don't store unencrypted credentials
+- ❌ Don't skip loading states
+- ❌ Don't use API routes for simple mutations (use Server Actions)
+- ❌ Don't forget RLS policies
+- ❌ Don't hardcode URLs or secrets
+- ❌ Don't skip webhook signature verification
+- ❌ Don't return full Shopify payloads (only essential fields)
+- ❌ Don't put business logic in database layer (keep it in operations)
+
+---
+
+## Do
+
+- ✅ Use TypeScript strict mode
+- ✅ Use DAL pattern: database layer for queries, operations for business logic
+- ✅ Encrypt all credentials
+- ✅ Implement loading and error states
+- ✅ Use optimistic updates for better UX
+- ✅ Verify all webhook signatures
+- ✅ Use mock mode for development
+- ✅ Write RLS policies for all tables
+- ✅ Use Server Actions for mutations
+- ✅ Handle errors gracefully with user-friendly messages
+- ✅ Keep database layer thin (just queries)
+- ✅ Put orchestration logic in operations layer
