@@ -106,7 +106,7 @@ failed_jobs (
 
 ## Day-by-Day Plan
 
-### Day 1: Project Setup & Authentication Foundation
+### ✅ Day 1: Project Setup & Authentication Foundation
 
 **Goal**: Bootable Next.js app with Supabase Google Auth working
 
@@ -154,7 +154,7 @@ failed_jobs (
 
 ---
 
-### Day 2: Database Schema & DAL Foundation
+### ✅ Day 2: Database Schema & DAL Foundation
 
 **Goal**: Database tables created, encryption working, basic DAL structure
 
@@ -210,7 +210,7 @@ failed_jobs (
 
 ---
 
-### Day 3: Store Management UI
+### 🚧 Day 3: Store Management UI
 
 **Goal**: Users can add/edit/delete stores with basic info (no integrations yet)
 
@@ -252,7 +252,7 @@ failed_jobs (
 
 ---
 
-### Day 4: Shopify OAuth Integration
+###  Day 4: Shopify OAuth Integration
 
 **Goal**: Complete Shopify OAuth flow to obtain access token
 
@@ -272,6 +272,8 @@ failed_jobs (
    - "Connect to Shopify" button
    - Display connection status
    - Scopes: `read_orders`, `write_orders`, `read_products`, `write_fulfillments`
+
+   🚧🚧🚧🚧  read_customers,read_fulfillments,write_fulfillments,read_orders,write_orders,read_products
 
 4. **State management**
    - Use `state` parameter to prevent CSRF
