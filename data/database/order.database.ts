@@ -1,4 +1,7 @@
-import { getSupabaseServerClient } from '@/data/database/client'
+import {
+  getSupabaseServerClient,
+  getSupabaseServiceClient,
+} from '@/data/database/client'
 import type { Order, OrderInsert, OrderUpdate } from '@/data/types/order.types'
 
 type OrderWithStore = Order & { stores?: { id: string; user_id: string } }
@@ -140,5 +143,113 @@ export async function deleteOrder(
   if (error && error.code !== 'PGRST116') {
     throw new Error(error.message)
   }
+}
+
+/**
+ * Upsert order from Shopify webhook (service role only)
+ * Used by webhook processing to create/update orders
+ */
+export async function upsertOrderFromShopify(
+  storeId: string,
+  shopifyOrder: Record<string, unknown>
+): Promise<Order> {
+  const supabase = getSupabaseServiceClient()
+
+  // Extract essential fields from Shopify order
+  const shopifyOrderId = String(shopifyOrder.id || '')
+  const shopifyOrderNumber = String(shopifyOrder.order_number || shopifyOrder.number || '')
+  
+  // Customer info
+  const customer = shopifyOrder.customer as Record<string, unknown> | undefined
+  const customerName = customer
+    ? `${customer.first_name || ''} ${customer.last_name || ''}`.trim() || null
+    : null
+  const customerEmail = customer?.email ? String(customer.email) : null
+  const customerPhone = customer?.phone ? String(customer.phone) : null
+
+  // Shipping address
+  const shippingAddress = shopifyOrder.shipping_address as Record<string, unknown> | undefined
+  const shippingAddressData = shippingAddress
+    ? {
+        first_name: shippingAddress.first_name ? String(shippingAddress.first_name) : undefined,
+        last_name: shippingAddress.last_name ? String(shippingAddress.last_name) : undefined,
+        address1: shippingAddress.address1 ? String(shippingAddress.address1) : undefined,
+        address2: shippingAddress.address2 ? String(shippingAddress.address2) : undefined,
+        city: shippingAddress.city ? String(shippingAddress.city) : undefined,
+        province: shippingAddress.province ? String(shippingAddress.province) : undefined,
+        country: shippingAddress.country ? String(shippingAddress.country) : undefined,
+        zip: shippingAddress.zip ? String(shippingAddress.zip) : undefined,
+        phone: shippingAddress.phone ? String(shippingAddress.phone) : undefined,
+        company: shippingAddress.company ? String(shippingAddress.company) : undefined,
+      }
+    : null
+
+  // Line items
+  const lineItems = (shopifyOrder.line_items as Array<Record<string, unknown>> | undefined)?.map(
+    (item) => ({
+      id: item.id ? String(item.id) : undefined,
+      title: item.title ? String(item.title) : undefined,
+      sku: item.sku ? String(item.sku) : undefined,
+      quantity: Number(item.quantity) || 0,
+      price: item.price ? Number(item.price) : undefined,
+      variant_id: item.variant_id ? String(item.variant_id) : undefined,
+    })
+  ) || null
+
+  // Totals
+  const totalPrice = shopifyOrder.total_price
+    ? String(shopifyOrder.total_price)
+    : null
+  const currency = shopifyOrder.currency ? String(shopifyOrder.currency) : 'RON'
+
+  // Status
+  const financialStatus = shopifyOrder.financial_status
+    ? String(shopifyOrder.financial_status)
+    : null
+  const fulfillmentStatus = shopifyOrder.fulfillment_status
+    ? String(shopifyOrder.fulfillment_status)
+    : null
+
+  // Dates
+  const shopifyCreatedAt = shopifyOrder.created_at
+    ? new Date(String(shopifyOrder.created_at)).toISOString()
+    : null
+  const cancelledAt = shopifyOrder.cancelled_at
+    ? new Date(String(shopifyOrder.cancelled_at)).toISOString()
+    : null
+
+  const orderData: OrderInsert = {
+    store_id: storeId,
+    shopify_order_id: shopifyOrderId,
+    shopify_order_number: shopifyOrderNumber,
+    customer_name: customerName,
+    customer_email: customerEmail,
+    customer_phone: customerPhone,
+    shipping_address: shippingAddressData,
+    line_items: lineItems,
+    total_price: totalPrice,
+    currency,
+    financial_status: financialStatus,
+    fulfillment_status: fulfillmentStatus,
+    cancelled_at: cancelledAt,
+    shopify_created_at: shopifyCreatedAt,
+    synced_at: new Date().toISOString(),
+  }
+
+  // Use upsert (insert or update on conflict)
+  const { data, error } = await supabase
+    .from(TABLE)
+    .upsert(orderData, {
+      onConflict: 'store_id,shopify_order_id',
+      ignoreDuplicates: false,
+    })
+    .select()
+    .single()
+
+  if (error) {
+    throw new Error(`Failed to upsert order: ${error.message}`)
+  }
+
+  return normalizeOrder(data as OrderWithStore) as Order
 }
 

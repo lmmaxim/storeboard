@@ -8,7 +8,8 @@ import {
   SHOPIFY_SCOPES,
 } from '@/lib/integrations/shopify/oauth'
 import { decryptCredentials, encryptCredentials } from '@/data/encryption/credentials'
-import { registerWebhooks } from '@/lib/integrations/shopify/webhook'
+import { registerWebhooks, unregisterWebhooks } from '@/lib/integrations/shopify/webhook'
+import { createWebhookSubscription, deleteWebhookSubscriptionsByStore } from '@/data/database/webhook-subscription.database'
 import { randomBytes } from 'crypto'
 
 /**
@@ -139,20 +140,55 @@ export async function GET(request: NextRequest) {
       tokenData.access_token
     )
 
-    // Generate webhook secret
-    const webhookSecret = randomBytes(32).toString('hex')
+    // Generate webhook secret if not exists
+    let webhookSecret = store.webhook_secret
+    if (!webhookSecret) {
+      webhookSecret = randomBytes(32).toString('hex')
+    }
 
-    // Get webhook URL
-    const webhookUrl = `${baseUrl}/api/webhooks/shopify/${oauthState.storeId}`
+    // Use generic webhook URL (store resolved by X-Shopify-Shop-Domain)
+    const webhookUrl = `${baseUrl}/api/webhooks/shopify`
 
-    // Register webhooks
+    // Clean up old webhooks and subscriptions before registering new ones
+    // This ensures we only have webhooks with the correct URL format
     try {
-      await registerWebhooks(
+      // Delete all existing webhooks from Shopify (removes old URLs with store ID in path)
+      await unregisterWebhooks(store.shopify_domain, tokenData.access_token)
+      
+      // Delete old subscription records from database
+      await deleteWebhookSubscriptionsByStore(oauthState.storeId)
+      
+      console.log(`[OAuth] Cleaned up old webhooks for store ${oauthState.storeId}`)
+    } catch (error) {
+      console.error('Failed to clean up old webhooks (continuing anyway):', error)
+      // Continue even if cleanup fails - we'll try to register new ones
+    }
+
+    // Register webhooks with the correct generic URL format
+    try {
+      const subscriptions = await registerWebhooks(
         store.shopify_domain,
         tokenData.access_token,
         webhookUrl,
         webhookSecret
       )
+
+      // Store subscription records
+      for (const sub of subscriptions) {
+        try {
+          await createWebhookSubscription({
+            store_id: oauthState.storeId,
+            shopify_webhook_id: sub.id,
+            topic: sub.topic,
+            webhook_url: sub.url,
+          })
+        } catch (error) {
+          // If subscription already exists, that's okay
+          console.warn(`Subscription ${sub.id} may already exist:`, error)
+        }
+      }
+      
+      console.log(`[OAuth] Registered ${subscriptions.length} webhooks with generic URL format for store ${oauthState.storeId}`)
     } catch (error) {
       console.error('Failed to register webhooks:', error)
       // Continue even if webhook registration fails - we can retry later

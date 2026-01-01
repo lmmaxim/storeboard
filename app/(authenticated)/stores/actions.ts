@@ -102,6 +102,69 @@ export async function disconnectShopifyAction(storeId: string) {
   return { success: true }
 }
 
+export async function reconnectShopifyAction(storeId: string) {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    return { success: false, error: 'Unauthorized' }
+  }
+
+  try {
+    // Get store to check if it has credentials
+    const store = await getStoreOperation(storeId, user.id)
+    if (!store) {
+      return { success: false, error: 'Store not found' }
+    }
+
+    // Check if store has client credentials stored
+    if (!store.shopify_client_id_encrypted || !store.shopify_client_secret_encrypted) {
+      return { 
+        success: false, 
+        error: 'Missing credentials',
+        needsCredentials: true 
+      }
+    }
+
+    // Decrypt credentials
+    const { decryptCredentials } = await import('@/data/encryption/credentials')
+    const clientIdData = decryptCredentials<{ clientId: string }>(
+      store.shopify_client_id_encrypted
+    )
+    const clientSecretData = decryptCredentials<{ clientSecret: string }>(
+      store.shopify_client_secret_encrypted
+    )
+
+    // Generate OAuth state
+    const state = generateOAuthState(store.id, user.id)
+
+    // Get redirect URI
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    const redirectUri = `${baseUrl}/api/shopify/callback`
+
+    // Generate Shopify OAuth URL
+    const authUrl = generateShopifyAuthUrl(
+      store.shopify_domain,
+      clientIdData.clientId,
+      redirectUri,
+      state
+    )
+
+    // Return OAuth URL for client-side redirect
+    return {
+      success: true,
+      oauthUrl: authUrl,
+      state,
+    }
+  } catch (error) {
+    console.error('Reconnect store error:', error)
+    const errorMessage = error instanceof Error ? error.message : 'Failed to reconnect store'
+    return { success: false, error: errorMessage }
+  }
+}
+
 export async function connectStoreAction(data: {
   name: string
   shopify_domain: string

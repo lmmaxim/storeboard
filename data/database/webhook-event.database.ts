@@ -78,3 +78,64 @@ export async function getWebhookEventsForStore(
   ) as WebhookEvent[]
 }
 
+export async function createWebhookEvent(
+  payload: WebhookEventInsert
+): Promise<WebhookEvent> {
+  return insertWebhookEvent(payload)
+}
+
+export async function getEventByShopifyId(
+  storeId: string,
+  shopifyWebhookId: string
+): Promise<WebhookEvent | null> {
+  const supabase = getSupabaseServiceClient()
+
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select('*')
+    .eq('store_id', storeId)
+    .eq('shopify_webhook_id', shopifyWebhookId)
+    .single()
+
+  if (error && error.code !== 'PGRST116') {
+    throw new Error(error.message)
+  }
+
+  if (!data) {
+    return null
+  }
+
+  return normalizeWebhook(data)
+}
+
+export async function markEventProcessed(
+  eventId: string
+): Promise<WebhookEvent> {
+  return updateWebhookEvent(eventId, {
+    processed: true,
+    processed_at: new Date().toISOString(),
+  })
+}
+
+export async function markEventFailed(
+  eventId: string,
+  error: string
+): Promise<WebhookEvent> {
+  const supabase = getSupabaseServiceClient()
+
+  // Get current retry count
+  const { data: current } = await supabase
+    .from(TABLE)
+    .select('retry_count')
+    .eq('id', eventId)
+    .single()
+
+  const retryCount = (current?.retry_count ?? 0) + 1
+
+  return updateWebhookEvent(eventId, {
+    processed: false,
+    error,
+    retry_count: retryCount,
+  })
+}
+

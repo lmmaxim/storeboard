@@ -291,48 +291,99 @@ failed_jobs (
 
 ---
 
-### 🚧 Day 5: Shopify Webhooks Infrastructure
+### ✅ Day 5: Shopify Webhooks Infrastructure
 
 **Goal**: Receive and store Shopify webhooks, basic processing
 
 #### Tasks
-1. **Webhook endpoint**
-   - `/app/api/webhooks/shopify/[storeId]/route.ts`
-   - Verify HMAC signature
+1. **Generic webhook endpoint**
+   - `/app/api/webhooks/shopify/route.ts` (single endpoint for all stores)
+   - Derives store from `X-Shopify-Shop-Domain` header (not from URL path)
+   - Verify HMAC signature using **Client Secret** (Shopify's standard)
    - Store raw event in `webhook_events` table
    - Return 200 immediately (async processing)
+   - Enhanced logging with timestamps and duplicate detection
 
 2. **Webhook verification** (`/lib/integrations/shopify/webhook.ts`)
-   - HMAC-SHA256 verification
-   - Replay attack prevention (check for duplicate delivery IDs)
+   - HMAC-SHA256 verification with timing-safe comparison
+   - Uses Client Secret (decrypted from store) for verification
+   - Falls back to stored `webhook_secret` if Client Secret unavailable
+   - Replay attack prevention (check for duplicate `X-Shopify-Webhook-Id`)
+   - Header extraction utility for Shopify webhook headers
 
 3. **Webhook registration on connect**
    - Register all webhook topics after OAuth success
-   - Store webhook IDs for later management
+   - **Cleanup old webhooks first** (removes webhooks with old URL format)
+   - Use generic URL: `${baseUrl}/api/webhooks/shopify` (not per-store)
+   - Store webhook subscription IDs in `shopify_webhook_subscriptions` table
+   - Track webhook URL for audit/debugging
    - Unregister on disconnect
 
-4. **Webhook event database layer**
-   - `createWebhookEvent(storeId, topic, payload)`
-   - `getUnprocessedEvents(storeId)`
+4. **Webhook event database layer** (`/data/database/webhook-event.database.ts`)
+   - `createWebhookEvent(storeId, topic, payload, shopifyWebhookId)`
+   - `getEventByShopifyId(storeId, shopifyWebhookId)` - duplicate detection
    - `markEventProcessed(eventId)`
-   - `markEventFailed(eventId, error)`
+   - `markEventFailed(eventId, error)` - with retry count tracking
 
-5. **Basic event processor** (runs inline for now)
+5. **Webhook subscription management** (`/data/database/webhook-subscription.database.ts`)
+   - Track webhook subscriptions in database
+   - `createWebhookSubscription()` - store subscription records
+   - `getWebhookSubscriptionsByStore()` - list all subscriptions
+   - `deleteWebhookSubscriptionsByStore()` - cleanup on disconnect
+   - Migration: `002_webhook_subscriptions.sql`
+
+6. **Basic event processor** (`/data/operations/webhook.operations.ts`)
    - Switch on topic
-   - For orders: upsert to orders table
-   - For app/uninstalled: mark store disconnected
+   - For `orders/create` & `orders/updated`: upsert to orders table via `upsertOrderFromShopify()`
+   - For `orders/cancelled`: mark order as cancelled
+   - For `app/uninstalled`: clear access token and scopes (preserve client credentials for reconnect)
+   - For `fulfillments/*`: log but don't process yet (future day)
+   - Duplicate detection before processing
+   - Enhanced error logging with context
+
+7. **Order database layer extension** (`/data/database/order.database.ts`)
+   - `upsertOrderFromShopify(storeId, shopifyOrder)` - service role function
+   - Transforms Shopify order format to internal format
+   - Extracts: customer info, shipping address, line items, totals, status
+   - Handles upsert (insert or update on conflict)
+
+8. **Store database layer extension** (`/data/database/store.database.ts`)
+   - `getStoreByDomain(shopifyDomain)` - lookup store by domain (for webhook routing)
+   - `getStoreByIdServiceRole(storeId)` - service role lookup (bypasses user check)
+
+9. **Reconnect functionality** (`/app/(authenticated)/stores/actions.ts` & `StoreCard.tsx`)
+   - `reconnectShopifyAction()` - reconnects store using stored credentials
+   - "Reconnect" option in store card dropdown (when disconnected)
+   - Only shows if store has client credentials stored
+   - Re-registers webhooks with cleanup of old ones
+
+10. **Middleware update** (`/lib/supabase/middleware.ts`)
+    - Exclude `/api/webhooks/shopify` from authentication (public endpoint)
+    - Secured by HMAC verification instead
 
 #### Test Criteria
-- [ ] Webhook endpoint returns 200 for valid requests
-- [ ] Invalid HMAC returns 401
-- [ ] Events stored in `webhook_events` table
-- [ ] Can see webhook events in Supabase dashboard
-- [ ] Duplicate webhooks are ignored
-- [ ] Test with Shopify webhook tester or ngrok
+- [x] Webhook endpoint returns 200 for valid requests
+- [x] Invalid HMAC returns 401
+- [x] Events stored in `webhook_events` table
+- [x] Can see webhook events in Supabase dashboard
+- [x] Duplicate webhooks are ignored (by `shopify_webhook_id`)
+- [x] Store lookup by domain header works correctly
+- [x] HMAC verification uses Client Secret
+- [x] Webhook subscriptions tracked in database
+- [x] Old webhooks cleaned up on reconnect
+- [x] Reconnect functionality works for disconnected stores
+
+#### Implementation Notes
+- **Generic endpoint design**: Single `/api/webhooks/shopify` endpoint derives store from `X-Shopify-Shop-Domain` header, not URL path. This is cleaner and more scalable.
+- **HMAC verification**: Uses Client Secret (Shopify standard) instead of custom webhook secret. Falls back to stored `webhook_secret` for backward compatibility.
+- **Webhook cleanup**: On OAuth connect, old webhooks are deleted before registering new ones to ensure clean state.
+- **Subscription tracking**: All webhook subscriptions stored in database for audit and management.
+- **Reconnect support**: Stores can be reconnected without re-entering credentials if client credentials are still stored.
 
 ---
 
-### Day 6: Order Sync & Display
+
+### 🚧 Day 6: Order Sync & Display
 
 **Goal**: Orders synced from webhooks displayed in unified list
 

@@ -1,3 +1,4 @@
+import { createHmac } from 'crypto'
 import { SHOPIFY_API_VERSION } from './oauth'
 
 /**
@@ -15,21 +16,77 @@ export const SHOPIFY_WEBHOOK_TOPICS = [
 export type ShopifyWebhookTopic = (typeof SHOPIFY_WEBHOOK_TOPICS)[number]
 
 /**
+ * Verify Shopify webhook HMAC signature
+ */
+export function verifyShopifyWebhook(
+  payload: string,
+  signature: string,
+  secret: string
+): boolean {
+  if (!signature || !secret) {
+    return false
+  }
+
+  // Shopify sends signature as "sha256=..." or "sha256=base64"
+  const signatureValue = signature.replace('sha256=', '')
+  
+  const hmac = createHmac('sha256', secret)
+  hmac.update(payload, 'utf8')
+  const computed = hmac.digest('base64')
+  
+  // Use timing-safe comparison to prevent timing attacks
+  if (computed.length !== signatureValue.length) {
+    return false
+  }
+  
+  let result = 0
+  for (let i = 0; i < computed.length; i++) {
+    result |= computed.charCodeAt(i) ^ signatureValue.charCodeAt(i)
+  }
+  
+  return result === 0
+}
+
+/**
+ * Extract webhook headers from request
+ */
+export interface ShopifyWebhookHeaders {
+  shopDomain: string | null
+  topic: string | null
+  webhookId: string | null
+  hmac: string | null
+}
+
+export function extractWebhookHeaders(headers: Headers): ShopifyWebhookHeaders {
+  return {
+    shopDomain: headers.get('x-shopify-shop-domain'),
+    topic: headers.get('x-shopify-topic'),
+    webhookId: headers.get('x-shopify-webhook-id'),
+    hmac: headers.get('x-shopify-hmac-sha256'),
+  }
+}
+
+/**
  * Register webhooks for a Shopify store
+ * Returns array of subscription info for storage
  */
 export async function registerWebhooks(
   shopifyDomain: string,
   accessToken: string,
   webhookUrl: string,
   webhookSecret: string
-): Promise<Array<{ id: string; topic: string }>> {
-  const results: Array<{ id: string; topic: string }> = []
+): Promise<Array<{ id: string; topic: string; url: string }>> {
+  const results: Array<{ id: string; topic: string; url: string }> = []
 
   for (const topic of SHOPIFY_WEBHOOK_TOPICS) {
     try {
       const webhook = await createWebhook(shopifyDomain, accessToken, topic, webhookUrl, webhookSecret)
       if (webhook) {
-        results.push({ id: webhook.id.toString(), topic })
+        results.push({
+          id: webhook.id.toString(),
+          topic,
+          url: webhookUrl,
+        })
       }
     } catch (error) {
       console.error(`Failed to register webhook for topic ${topic}:`, error)

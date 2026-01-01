@@ -129,3 +129,52 @@ export async function deleteStore(
   }
 }
 
+export async function getStoreByDomain(
+  shopifyDomain: string,
+  { useServiceRole = false }: { useServiceRole?: boolean } = {}
+): Promise<Store | null> {
+  const supabase = await resolveClient(useServiceRole)
+
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select('*')
+    .eq('shopify_domain', shopifyDomain)
+    .single()
+
+  if (error && error.code !== 'PGRST116') {
+    throw new Error(error.message)
+  }
+
+  if (!data) {
+    return null
+  }
+
+  return toStore(data)
+}
+
+/**
+ * Get store by ID using service role (bypasses user check)
+ * Use only for internal operations like webhook processing
+ */
+export async function getStoreByIdServiceRole(
+  storeId: string
+): Promise<Store | null> {
+  const supabase = getSupabaseServiceClient()
+
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select('*')
+    .eq('id', storeId)
+    .single()
+
+  if (error && error.code !== 'PGRST116') {
+    throw new Error(error.message)
+  }
+
+  if (!data) {
+    return null
+  }
+
+  return toStore(data)
+}
+

@@ -28,11 +28,11 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Store, MoreVertical, Trash2, Edit } from 'lucide-react'
+import { Store, MoreVertical, Trash2, Edit, Link2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
 import type { Store as StoreType } from '@/data/types/store.types'
-import { updateStoreAction, deleteStoreAction } from '@/app/(authenticated)/stores/actions'
+import { updateStoreAction, deleteStoreAction, reconnectShopifyAction } from '@/app/(authenticated)/stores/actions'
 
 interface StoreCardProps {
   store: StoreType
@@ -45,8 +45,10 @@ export function StoreCard({ store }: StoreCardProps) {
   const [newName, setNewName] = useState(store.name)
   const [isRenaming, setIsRenaming] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [isReconnecting, setIsReconnecting] = useState(false)
 
   const isConnected = !!store.shopify_access_token_encrypted
+  const hasCredentials = !!store.shopify_client_id_encrypted && !!store.shopify_client_secret_encrypted
 
   const handleRename = async () => {
     if (!newName.trim() || newName.trim() === store.name) {
@@ -87,6 +89,35 @@ export function StoreCard({ store }: StoreCardProps) {
     }
   }
 
+  const handleReconnect = async () => {
+    setIsReconnecting(true)
+    try {
+      const result = await reconnectShopifyAction(store.id)
+      
+      if (result.success && result.oauthUrl) {
+        // Redirect to OAuth flow
+        const connectUrl = `/api/shopify/connect?storeId=${store.id}&state=${encodeURIComponent(result.state || '')}&oauthUrl=${encodeURIComponent(result.oauthUrl)}`
+        window.location.href = connectUrl
+      } else if (result.needsCredentials) {
+        // Credentials are missing, show error message
+        toast.error('Store credentials are missing. Please use the settings page to reconnect.', {
+          duration: 5000,
+        })
+        setIsReconnecting(false)
+      } else {
+        toast.error(result.error || 'Failed to reconnect store', {
+          duration: 4000,
+        })
+        setIsReconnecting(false)
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to reconnect store', {
+        duration: 4000,
+      })
+      setIsReconnecting(false)
+    }
+  }
+
   return (
     <>
       <Card className="transition-shadow hover:shadow-md">
@@ -119,6 +150,15 @@ export function StoreCard({ store }: StoreCardProps) {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  {!isConnected && hasCredentials && (
+                    <DropdownMenuItem 
+                      onClick={handleReconnect}
+                      disabled={isReconnecting}
+                    >
+                      <Link2 className="mr-2 h-4 w-4" />
+                      {isReconnecting ? 'Reconnecting...' : 'Reconnect'}
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem onClick={() => setRenameOpen(true)}>
                     <Edit className="mr-2 h-4 w-4" />
                     Rename
