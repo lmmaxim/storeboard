@@ -252,7 +252,7 @@ failed_jobs (
 
 ---
 
-###  🚧 Day 4: Shopify OAuth Integration
+### ✅ Day 4: Shopify OAuth Integration
 
 **Goal**: Complete Shopify OAuth flow to obtain access token
 
@@ -271,9 +271,7 @@ failed_jobs (
    - Input fields for Client ID and Client Secret
    - "Connect to Shopify" button
    - Display connection status
-   - Scopes: `read_orders`, `write_orders`, `read_products`, `write_fulfillments`
-
-   🚧🚧🚧🚧  read_customers,read_fulfillments,write_fulfillments,read_orders,write_orders,read_products
+   - Scopes: read_customers,read_fulfillments,write_fulfillments,read_orders,write_orders,read_products
 
 4. **State management**
    - Use `state` parameter to prevent CSRF
@@ -284,16 +282,16 @@ failed_jobs (
    - Topics: `orders/create`, `orders/updated`, `orders/cancelled`, `fulfillments/create`, `fulfillments/update`, `app/uninstalled`
 
 #### Test Criteria
-- [ ] Can enter Shopify Client ID and Secret
-- [ ] Click "Connect" redirects to Shopify OAuth
-- [ ] After approval, redirected back with access token stored
-- [ ] Store shows "Connected" status
-- [ ] Can disconnect (removes token)
-- [ ] Invalid credentials show error
+- [x] Can enter Shopify Client ID and Secret
+- [x] Click "Connect" redirects to Shopify OAuth
+- [x] After approval, redirected back with access token stored
+- [x] Store shows "Connected" status
+- [x] Can disconnect (removes token)
+- [x] Invalid credentials show error
 
 ---
 
-### Day 5: Shopify Webhooks Infrastructure
+### 🚧 Day 5: Shopify Webhooks Infrastructure
 
 **Goal**: Receive and store Shopify webhooks, basic processing
 

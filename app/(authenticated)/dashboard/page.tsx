@@ -83,7 +83,7 @@ export default async function DashboardPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <Link href="/stores/new">
+                <Link href="/stores">
                   <Button>
                     <Plus className="mr-2 h-4 w-4" />
                     Add Your First Store
