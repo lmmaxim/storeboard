@@ -1,0 +1,7 @@
+tunnel: 79765e4e-fb33-44d3-b1dc-8faca76e38ee
+credentials-file: .cloudflared/79765e4e-fb33-44d3-b1dc-8faca76e38ee.json
+
+ingress:
+  - hostname: dev.storeboard.app
+    service: http://localhost:3000
+  - service: http_status:404
