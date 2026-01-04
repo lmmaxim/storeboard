@@ -77,6 +77,42 @@ export async function getOrdersByStoreId(
   ) as Order[]
 }
 
+export interface GetOrdersOptions {
+  limit?: number
+  storeId?: string
+}
+
+export async function getOrdersByUserId(
+  userId: string,
+  options: GetOrdersOptions = {}
+): Promise<Order[]> {
+  const supabase = await getSupabaseServerClient()
+
+  let query = supabase
+    .from(TABLE)
+    .select('*, stores!inner(id, user_id)')
+    .eq('stores.user_id', userId)
+    .order('created_at', { ascending: false })
+
+  if (options.storeId) {
+    query = query.eq('store_id', options.storeId)
+  }
+
+  if (options.limit) {
+    query = query.limit(options.limit)
+  }
+
+  const { data, error } = await query
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return (data ?? []).map((record) =>
+    normalizeOrder(record as OrderWithStore)
+  ) as Order[]
+}
+
 export async function getOrderById(
   orderId: string,
   userId: string
@@ -251,5 +287,43 @@ export async function upsertOrderFromShopify(
   }
 
   return normalizeOrder(data as OrderWithStore) as Order
+}
+
+/**
+ * Update order AWB fields
+ */
+export async function updateOrderAwb(
+  orderId: string,
+  userId: string,
+  awbData: {
+    awb_number: string
+    awb_created_at?: string
+    awb_pdf_url?: string | null
+  }
+): Promise<Order> {
+  return updateOrder(orderId, userId, {
+    awb_number: awbData.awb_number,
+    awb_created_at: awbData.awb_created_at ?? new Date().toISOString(),
+    awb_pdf_url: awbData.awb_pdf_url ?? null,
+  })
+}
+
+/**
+ * Update order invoice fields
+ */
+export async function updateOrderInvoice(
+  orderId: string,
+  userId: string,
+  invoiceData: {
+    invoice_number: string
+    invoice_created_at?: string
+    invoice_pdf_url?: string | null
+  }
+): Promise<Order> {
+  return updateOrder(orderId, userId, {
+    invoice_number: invoiceData.invoice_number,
+    invoice_created_at: invoiceData.invoice_created_at ?? new Date().toISOString(),
+    invoice_pdf_url: invoiceData.invoice_pdf_url ?? null,
+  })
 }
 

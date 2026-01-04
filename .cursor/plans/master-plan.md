@@ -383,7 +383,7 @@ failed_jobs (
 ---
 
 
-### 🚧 Day 6: Order Sync & Display
+### ✅ Day 6: Order Sync & Display
 
 **Goal**: Orders synced from webhooks displayed in unified list
 
@@ -434,7 +434,7 @@ failed_jobs (
 
 ---
 
-### Day 7: Order Sidebar & Details
+### 🚧 Day 7: Order Sidebar & Details
 
 **Goal**: Click order to see details in sidebar panel
 

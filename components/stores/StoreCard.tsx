@@ -28,11 +28,12 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Store, MoreVertical, Trash2, Edit, Link2 } from 'lucide-react'
+import { Store, MoreVertical, Trash2, Edit, Link2, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
 import type { Store as StoreType } from '@/data/types/store.types'
 import { updateStoreAction, deleteStoreAction, reconnectShopifyAction } from '@/app/(authenticated)/stores/actions'
+import { syncOrdersAction } from '@/app/(authenticated)/orders/actions'
 
 interface StoreCardProps {
   store: StoreType
@@ -46,6 +47,7 @@ export function StoreCard({ store }: StoreCardProps) {
   const [isRenaming, setIsRenaming] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isReconnecting, setIsReconnecting] = useState(false)
+  const [isSyncing, setIsSyncing] = useState(false)
 
   const isConnected = !!store.shopify_access_token_encrypted
   const hasCredentials = !!store.shopify_client_id_encrypted && !!store.shopify_client_secret_encrypted
@@ -118,6 +120,33 @@ export function StoreCard({ store }: StoreCardProps) {
     }
   }
 
+  const handleSyncOrders = async () => {
+    setIsSyncing(true)
+    try {
+      const result = await syncOrdersAction(store.id)
+      
+      if (result.success) {
+        toast.success(
+          `Synced ${result.synced} order(s)${result.errors > 0 ? ` (${result.errors} failed)` : ''}`,
+          {
+            duration: 5000,
+          }
+        )
+        router.refresh()
+      } else {
+        toast.error(result.error || 'Failed to sync orders', {
+          duration: 4000,
+        })
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to sync orders', {
+        duration: 4000,
+      })
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+
   return (
     <>
       <Card className="transition-shadow hover:shadow-md">
@@ -150,6 +179,15 @@ export function StoreCard({ store }: StoreCardProps) {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  {isConnected && (
+                    <DropdownMenuItem 
+                      onClick={handleSyncOrders}
+                      disabled={isSyncing}
+                    >
+                      <RefreshCw className={`mr-2 h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                      {isSyncing ? 'Syncing...' : 'Sync Orders'}
+                    </DropdownMenuItem>
+                  )}
                   {!isConnected && hasCredentials && (
                     <DropdownMenuItem 
                       onClick={handleReconnect}
